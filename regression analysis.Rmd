@@ -1,0 +1,181 @@
+---
+title: "Regression Analysis"
+author: "anonymous"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Data Import
+
+```{r}
+rm(list=ls())
+
+library(readr)
+library(readxl)
+test_center_geo <- read_csv("./Dataset/test_center2023_11_21_18_57.csv")
+test_center_geo <- test_center_geo[,!grepl("pRate|Search", colnames(test_center_geo))]
+dvsa1203 <- read_excel("./Dataset/dvsa1203_cleaned.xlsx")
+
+```
+# Data preparation
+
+```{r}
+
+
+# remove the columns passes from the dvsa1203
+dvsa1203 <- subset(dvsa1203, select = -c(Passes))
+
+# # covert the Year in to character
+dvsa1203$Year <- as.character(dvsa1203$Year)
+
+# delete the prefix "20" from the Year, and add pRate to the end of the Year
+dvsa1203$Year <- substr(dvsa1203$Year,3,4)
+
+# change the name of the column Year to pRate
+library(dplyr)
+dvsa1203 %>% rename("pRate" = "Pass rate") %>% rename("nCase" = "Conducted") -> dvsa1203
+
+# pivot_wider the dvsa1203 on the column Year
+library(tidyr)
+dvsa1203 %>% distinct() %>%pivot_wider(names_from = Year, values_from = c(pRate, nCase),names_sep="") -> dvsa1203
+
+# join the two datasets on the test center name
+merge(dvsa1203, test_center_geo, by.x = "Location", by.y = "Test Center", all.x = TRUE) -> data
+
+# remove the Gender == "Total" from the data"
+data <- data[data$Gender != "Total",]
+
+# select Gender as a factor
+data$Gender <- as.factor(data$Gender)
+
+data
+
+```
+
+# Wald test
+```{r}
+ux18F <- data[data$Location=="Uxbridge (London)" & data$Gender=="Female"& data$Age=="18",]
+wl18F <- data[data$Location=="Wood Green (London)" & data$Gender=="Female"& data$Age=="18",]
+
+
+ux18F <- ux18F[,grepl("pRate", colnames(ux18F))]
+wl18F <- wl18F[,grepl("pRate", colnames(wl18F))]
+
+# drop NA columns
+ux18F <- ux18F[,colSums(is.na(ux18F))<nrow(ux18F)]
+wl18F <- wl18F[,colSums(is.na(wl18F))<nrow(wl18F)]
+
+ux18F.values <- as.vector(t(ux18F))
+wl18F.values <- as.vector(t(wl18F))
+
+delta <- ux18F.values - wl18F.values
+
+
+library(car)
+qqPlot(delta)
+
+w <- mean(delta)/sqrt(var(delta)/nrow(ux18F))
+
+w > qnorm(0.95)
+w
+qnorm(0.95)
+```
+
+
+
+
+
+# Model Selection
+using the AIC to select the best features set from the pRate21, pRate19, , pRate18,....
+```{r}
+# step(slr.full, direction = "backward")
+
+
+slr.full <- lm(pRate22~., data = data[colnames(data)[grepl("pRate|Age|Gender", colnames(data))]])
+
+summary(slr.full)
+
+```
+
+
+
+```{r}
+# Create a list of feature groups
+feature_groups <- list(
+  roundabouts = c("roundabouts1Km", "roundabouts5Km", "roundabouts10Km",
+                   "roundabouts15Km", "roundabouts20Km", "roundabouts25Km"),
+  
+  traffic_signals = c("traffic_signals1Km", "traffic_signals5Km", "traffic_signals10Km",
+                      "traffic_signals15Km", "traffic_signals20Km", "traffic_signals25Km"),
+  
+  schools = c("schools1Km", "schools5Km", "schools10Km",
+               "schools15Km", "schools20Km", "schools25Km"),
+  
+  traffic_lights = c("traffic_lights1Km", "traffic_lights5Km", "traffic_lights10Km",
+                      "traffic_lights15Km", "traffic_lights20Km", "traffic_lights25Km"),
+  
+  bstop = c("bstop1Km", "bstop5Km", "bstop10Km", "bstop15Km", "bstop20Km", "bstop25Km")
+)
+
+
+# Initialize variables to store the best AIC and the corresponding model
+best_model.sformula <- "pRate22 ~ pRate21+ pRate20  + Gender + Age"
+best_model <- lm(as.formula(best_model.sformula), data = data)
+ 
+
+# Loop through each feature group and select one feature at a time
+for (group_name in names(feature_groups)) {
+  group_features <- feature_groups[[group_name]]
+  
+  feature_to_include <- ""
+  best_model.AIC <- AIC(best_model)
+  
+  # Loop through each feature in the group
+  for (feature in group_features) {
+    # Create a model formula with only the selected feature
+    sformula <- paste(best_model.sformula,"+" , feature)
+
+
+    # Fit the model
+    model <- lm(as.formula(sformula), data = data)
+
+    # Calculate AIC for this model
+    model.AIC <- AIC(model)
+
+    # Check if this model has a lower AIC than the current best model
+    if (model.AIC < best_model.AIC) {
+      best_model.AIC <- model.AIC
+      feature_to_include <- feature
+    }
+    
+  }
+  
+  # include the best feature in the group
+  if (feature_to_include != ""){
+      print(paste("The best feature in the group", group_name, "is", feature_to_include))
+      best_model.sformula <- paste(best_model.sformula,"+" , feature_to_include)
+      best_model <- update(best_model, as.formula(best_model.sformula))
+    }
+  
+}
+
+
+
+summary(best_model)
+par(mfrow = c(2,2))
+plot(best_model)
+```
+## prediction analysis
+```{r}
+
+```
+
+To improve the interpretability of the model, we need to set the distance of the features into the same level
+```{r}
+for (distance in c(1,5,10,15,20,25)){
+  
+  
+}
+
+```
+
